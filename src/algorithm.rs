@@ -19,7 +19,7 @@ pub trait SignatureAlgorithm {
     fn sign(&self, data: &[u8], output: &mut dyn Write) -> std::io::Result<()>;
 }
 
-mod hs {
+pub mod hs {
     use std::io::Write;
 
     use ring::{hmac::Key, rand::SecureRandom, signature::{RsaEncoding, RsaKeyPair}};
@@ -118,7 +118,7 @@ mod hs {
     }
 }
 
-mod rsa {
+pub mod rsa {
     use std::fmt::Debug;
     use std::io::Write;
 
@@ -176,7 +176,7 @@ mod rsa {
     }
 }
 
-mod hmac {
+pub mod hmac {
     use std::fmt::Debug;
     use std::io::Write;
 
@@ -231,7 +231,7 @@ mod hmac {
     }
 }
 
-mod ecdsa {
+pub mod ecdsa {
     use std::fmt::Debug;
     use std::io::Write;
 

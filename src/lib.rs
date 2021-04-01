@@ -2,7 +2,22 @@
 #![feature(generic_associated_types)]
 #![feature(min_type_alias_impl_trait)]
 
-pub mod algorithm;
+mod algorithm;
 pub mod request;
-pub mod sign;
-pub mod signature;
+mod sign;
+mod signature;
+
+pub use algorithm::{
+    SignatureAlgorithm,
+    hs::Hs2019,
+    rsa::RsaSha256,
+    hmac::HmacSha256,
+    ecdsa::EcdsaSha256,
+};
+
+pub use signature::{
+    SignError,
+    SignatureElement,
+    SignatureScheme,
+    sign,
+};
