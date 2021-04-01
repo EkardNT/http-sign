@@ -69,7 +69,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-sig"
+name = "http-sign"
 version = "0.1.0"
 dependencies = [
  "base64",
