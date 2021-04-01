@@ -22,16 +22,55 @@ pub trait SignatureAlgorithm {
 mod hs {
     use std::io::Write;
 
-    use ring::{rand::SecureRandom, signature::{RsaEncoding, RsaKeyPair}};
+    use ring::{hmac::Key, rand::SecureRandom, signature::{RsaEncoding, RsaKeyPair}};
 
     use super::SignatureAlgorithm;
 
-    pub enum Hs2019<Rand> {
-        Rsa {
-            padding_alg: &'static dyn RsaEncoding,
+    pub struct Hs2019<Rand>(Inner<Rand>);
+
+    enum Inner<Rand> {
+        RsaPkcs1 {
             key_id: String,
             key: RsaKeyPair,
-            random: Rand
+            random: Rand,
+        },
+        RsaPss {
+            key_id: String,
+            key: RsaKeyPair,
+            random: Rand,
+        },
+        Hmac {
+            key_id: String,
+            key: Key
+        }
+    }
+
+    impl<Rand> Hs2019<Rand> {
+        pub fn new_rsa_pkcs1(key_id: impl Into<String>, key: RsaKeyPair, random: Rand) -> Self {
+            Self(Inner::RsaPkcs1 {
+                key_id: key_id.into(),
+                key,
+                random
+            })
+        }
+
+        pub fn new_rsa_pss(key_id: impl Into<String>, key: RsaKeyPair, random: Rand) -> Self {
+            Self(Inner::RsaPss {
+                key_id: key_id.into(),
+                key,
+                random
+            })
+        }
+
+        /// Constructs a new Hs2019 using HMAC with SHA-512 from the supplied HMAC key
+        /// data. See the documentation of `ring::hmac::Key::new` for a discussion of the
+        /// length of `key_value`.
+        pub fn new_hmac(key_id: impl Into<String>, key_value: &[u8]) -> Self {
+            let key = Key::new(ring::hmac::HMAC_SHA512, key_value);
+            Self(Inner::Hmac {
+                key_id: key_id.into(),
+                key
+            })
         }
     }
 
@@ -41,8 +80,10 @@ mod hs {
         }
 
         fn key_id(&self) -> &str {
-            match self {
-                Hs2019::Rsa { key_id, .. } => key_id
+            match &self.0 {
+                Inner::RsaPkcs1 { key_id, .. } => key_id,
+                Inner::RsaPss { key_id, .. } => key_id,
+                Inner::Hmac { key_id, .. } => key_id,
             }
         }
 
@@ -51,17 +92,28 @@ mod hs {
         }
 
         fn sign(&self, data: &[u8], output: &mut dyn Write) -> std::io::Result<()> {
-            match self {
-                Hs2019::Rsa { padding_alg, key, random, .. } => {
+            match &self.0 {
+                Inner::RsaPkcs1 { key, random, .. } => {
                     // 1024 bytes is enough for RSA-8192 keys.
                     let mut signature = [0u8; 1024];
                     let signature = &mut signature[..key.public_modulus_len()];
-                    key.sign(*padding_alg, random, data, signature)
-                        .expect("Failed to compute RSA signature");
+                    key.sign(&ring::signature::RSA_PKCS1_SHA512, random, data, signature)
+                        .expect("Failed to compute RSA_PKCS1_SHA512 signature");
                     output.write_all(signature)
                 }
+                Inner::RsaPss { key, random, .. } => {
+                    // 1024 bytes is enough for RSA-8192 keys.
+                    let mut signature = [0u8; 1024];
+                    let signature = &mut signature[..key.public_modulus_len()];
+                    key.sign(&ring::signature::RSA_PSS_SHA512, random, data, signature)
+                        .expect("Failed to compute RSA_PSS_SHA512 signature");
+                    output.write_all(signature)
+                }
+                Inner::Hmac { key, .. } => {
+                    let tag = ring::hmac::sign(key, data);
+                    output.write_all(tag.as_ref())
+                }
             }
-
         }
     }
 }
@@ -139,11 +191,10 @@ mod hmac {
     }
 
     impl HmacSha256 {
-        /// Constructs a new `HmacSha256` from the supplied HMAC Key. Panics if the Key's
-        /// algorithm is not HMAC_SHA256.
-        pub fn new(key_id: impl Into<String>, key: Key) -> Self {
-            assert_eq!(ring::hmac::HMAC_SHA256, key.algorithm(),
-                "HMAC key algorithm should have been {:?} but was {:?}", ring::hmac::HMAC_SHA256, key.algorithm());
+        /// Constructs a new `HmacSha256` from the supplied HMAC key data. See the
+        /// documentation of `ring::hmac::Key::new` for a discussion of the length of `key_value`.
+        pub fn new(key_id: impl Into<String>, key_value: &[u8]) -> Self {
+            let key = Key::new(ring::hmac::HMAC_SHA256, key_value);
             Self {
                 key_id: key_id.into(),
                 key,
