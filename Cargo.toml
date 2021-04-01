@@ -9,7 +9,7 @@ homepage = "https://crates.io/crates/http-sign"
 documentation = "https://docs.rs/http-sign"
 repository = "https://github.com/EkardNT/http-sign"
 keywords = ["http", "signature", "auth", "authentication"]
-categories = ["authentication", "network-programming", "web-programming:http-client"]
+categories = ["authentication", "network-programming", "web-programming::http-client"]
 
 [dependencies]
 base64 = "0.13"
