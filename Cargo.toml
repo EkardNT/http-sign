@@ -1,6 +1,6 @@
 [package]
 name = "http-sign"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Drake Tetreault <ekardnt@ekardnt.com>"]
 edition = "2018"
 license = "CC0-1.0"
@@ -13,7 +13,5 @@ categories = ["authentication", "network-programming", "web-programming::http-cl
 
 [dependencies]
 base64 = "0.13"
-chrono = "0.4"
 http = "0.2"
-marching-buffer = "0.1"
 ring = "0.16"

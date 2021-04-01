@@ -4,7 +4,6 @@
 
 mod algorithm;
 pub mod request;
-mod sign;
 mod signature;
 
 pub use algorithm::{
