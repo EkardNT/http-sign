@@ -1,0 +1,19 @@
+[package]
+name = "http-sign"
+version = "0.1.0"
+authors = ["Drake Tetreault <ekardnt@ekardnt.com>"]
+edition = "2018"
+license = "CC0-1.0"
+description = "Implementation of HTTP signature draft standard"
+homepage = "https://crates.io/crates/http-sign"
+documentation = "https://docs.rs/http-sign"
+repository = "https://github.com/EkardNT/http-sign"
+keywords = ["http", "signature", "auth", "authentication"]
+categories = ["authentication", "network-programming", "web-programming:http-client"]
+
+[dependencies]
+base64 = "0.13"
+chrono = "0.4"
+http = "0.2"
+marching-buffer = "0.1"
+ring = "0.16"
