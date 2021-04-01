@@ -114,6 +114,22 @@ pub enum Method {
     Patch,
 }
 
+impl Method {
+    pub fn lowercase(&self) -> &'static [u8] {
+        match self {
+            Self::Get => b"get",
+            Self::Post => b"post",
+            Self::Put => b"put",
+            Self::Delete => b"delete",
+            Self::Head => b"head",
+            Self::Options => b"options",
+            Self::Connect => b"connect",
+            Self::Patch => b"patch",
+            Self::Trace => b"trace",
+        }
+    }
+}
+
 pub trait Headers {
     type NameIter<'a> : Iterator<Item = &'a str>;
     type ValueIter<'a> : Iterator<Item = &'a [u8]>;

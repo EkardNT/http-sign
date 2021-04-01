@@ -10,27 +10,12 @@ use ring::rand::SecureRandom;
 use ring::signature::RsaKeyPair;
 
 trait MethodExt {
-    fn lowercase(&self) -> &'static [u8];
     fn is_body_mandatory(&self) -> bool;
     fn required_object_storage_signing_elements(self) -> &'static [SignatureElement<'static>];
     fn required_non_object_storage_signing_elements(&self) -> &'static [SignatureElement<'static>];
 }
 
 impl MethodExt for Method {
-    fn lowercase(&self) -> &'static [u8] {
-        match self {
-            Self::Get => b"get",
-            Self::Post => b"post",
-            Self::Put => b"put",
-            Self::Delete => b"delete",
-            Self::Head => b"head",
-            Self::Options => b"options",
-            Self::Connect => b"connect",
-            Self::Patch => b"patch",
-            Self::Trace => b"trace",
-        }
-    }
-
     fn is_body_mandatory(&self) -> bool {
         match self {
             Self::Put | Self::Patch | Self::Post => true,
