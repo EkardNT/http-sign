@@ -1,7 +1,7 @@
 use std::{io::Write, time::{Duration, UNIX_EPOCH}};
 use std::time::SystemTime;
 
-use crate::{algorithm::SignatureAlgorithm, request::{Headers, Request}};
+use crate::{algorithm::SignatureAlgorithm, message::{Headers, HttpMessage}};
 
 /// An element that contributes to the signature calculation. Standard HTTP headers may
 /// be included in the signature, as well as special non-header fields such as
@@ -83,18 +83,18 @@ pub enum SignError {
     Internal(&'static str)
 }
 
-pub fn sign<'sig_elems, SigAlg, Req, IntoSigElements>(
+pub fn sign<'sig_elems, SigAlg, Msg, IntoSigElements>(
         scheme: SignatureScheme,
         sig_alg: &SigAlg,
-        request: &mut Req,
+        message: &mut Msg,
         expiration: Duration,
         signature_elements: &[SignatureElement<'_>],
     ) -> Result<(), SignError>
     where
         SigAlg: SignatureAlgorithm,
-        Req: Request,
+        Msg: HttpMessage,
 {
-    validate_signature_elements(sig_alg, request, signature_elements)?;
+    validate_signature_elements(sig_alg, message, signature_elements)?;
     let now = SystemTime::now();
     let created = now.duration_since(UNIX_EPOCH)
         .map_err(|_err| SignError::Internal("Unable to determine (created) Unix timestamp"))?
@@ -103,19 +103,19 @@ pub fn sign<'sig_elems, SigAlg, Req, IntoSigElements>(
         .map_err(|_err| SignError::Internal("Unable to determine (expires) Unix timestamp"))?
         .as_secs();
     let signature_input = build_canonical_signature_input(
-        sig_alg, request, created, expires, signature_elements)?;
+        sig_alg, message, created, expires, signature_elements)?;
     let encoded_signature = get_encoded_signature(sig_alg, signature_input)?;
     let signature_header = build_final_header(scheme, sig_alg, encoded_signature, created, expires, signature_elements)?;
     match scheme {
-        SignatureScheme::AuthorizationHeader => request.headers_mut().insert_header("authorization", signature_header.as_slice()),
-        SignatureScheme::SignatureHeader => request.headers_mut().insert_header("signature", signature_header.as_slice())
+        SignatureScheme::AuthorizationHeader => message.headers_mut().insert_header("authorization", signature_header.as_slice()),
+        SignatureScheme::SignatureHeader => message.headers_mut().insert_header("signature", signature_header.as_slice())
     }
     Ok(())
 }
 
-fn validate_signature_elements<SigAlg: SignatureAlgorithm, Req: Request>(
+fn validate_signature_elements<SigAlg: SignatureAlgorithm, Msg: HttpMessage>(
         sig_alg: &SigAlg,
-        request: &mut Req,
+        message: &mut Msg,
         signature_elements: &[SignatureElement<'_>],
     ) -> Result<(), SignError> {
     if signature_elements.is_empty() {
@@ -130,7 +130,7 @@ fn validate_signature_elements<SigAlg: SignatureAlgorithm, Req: Request>(
             }
 
             // Make sure referenced header exists.
-            if !request.headers().contains_header(header) {
+            if !message.headers().contains_header(header) {
                 return Err(SignError::MissingHeader(header.to_string()));
             }
         }
@@ -155,27 +155,27 @@ fn validate_signature_elements<SigAlg: SignatureAlgorithm, Req: Request>(
     Ok(())
 }
 
-fn build_canonical_signature_input<'sig_elems, SigAlg, Req>(
+fn build_canonical_signature_input<'sig_elems, SigAlg, Msg>(
         sig_alg: &SigAlg,
-        request: &mut Req,
+        message: &mut Msg,
         created: u64,
         expires: u64,
         signature_elements: &[SignatureElement<'_>],
     ) -> Result<Vec<u8>, SignError>
     where
         SigAlg: SignatureAlgorithm,
-        Req: Request,
+        Msg: HttpMessage,
 {
     let mut canonical = Vec::with_capacity(1024);
     for element in signature_elements {
         match element {
             SignatureElement::RequestTarget => {
                 canonical.extend_from_slice(b"(request-target): ");
-                canonical.extend_from_slice(request.method().lowercase());
+                canonical.extend_from_slice(message.method().lowercase());
                 canonical.push(b' ');
                 // TODO: url-encode the path and query string?
-                canonical.extend_from_slice(request.path().as_bytes());
-                if let Some(query) = request.query_string() {
+                canonical.extend_from_slice(message.path().as_bytes());
+                if let Some(query) = message.query_string() {
                     canonical.push(b'?');
                     canonical.extend_from_slice(query.as_bytes());
                 }
@@ -192,8 +192,8 @@ fn build_canonical_signature_input<'sig_elems, SigAlg, Req>(
             SignatureElement::Header(name) => {
                 canonical.extend_from_slice(name.as_bytes());
                 canonical.extend_from_slice(b": ");
-                if request.headers().header_values(name).any(|_| true) {
-                    for value in request.headers().header_values(name) {
+                if message.headers().header_values(name).any(|_| true) {
+                    for value in message.headers().header_values(name) {
                         // If header value is a valid UTF-8 string, then trim it, otherwise use the raw bytes
                         if let Ok(value_str) = std::str::from_utf8(value) {
                             canonical.extend_from_slice(value_str.trim().as_bytes());

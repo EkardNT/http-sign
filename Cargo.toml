@@ -4,7 +4,7 @@ version = "0.2.1"
 authors = ["Drake Tetreault <ekardnt@ekardnt.com>"]
 edition = "2018"
 license = "CC0-1.0"
-description = "Implementation of HTTP signature draft standard"
+description = "Implementation of the HTTP signature draft standard"
 homepage = "https://crates.io/crates/http-sign"
 documentation = "https://docs.rs/http-sign"
 repository = "https://github.com/EkardNT/http-sign"
@@ -13,5 +13,7 @@ categories = ["authentication", "network-programming", "web-programming::http-cl
 
 [dependencies]
 base64 = "0.13"
-http = "0.2"
 ring = "0.16"
+
+# Optional dependencies for type support.
+http = { version = "0.2", optional = true }

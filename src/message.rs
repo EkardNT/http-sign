@@ -1,15 +1,43 @@
-pub trait Request {
+/// This trait exposes all of the information about a HTTP message that is required to
+/// produce the signature header. This trait can represent both HTTP requests and
+/// responses.
+///
+/// The [OwnedHttpMessage] and [BorrowedHttpMessage] types are provided for simple use
+/// cases where you do not have preexisting structs representing HTTP requests and responses
+/// that you can use. In addition to those two convenience types, support for other common
+/// community crates can be enabled by turning on the following **features**, all of which are
+/// off by default.
+/// - `http`: Enables support for the [http](https://crates.io/crates/http) crate's
+///   Request and HeaderMap types.
+pub trait HttpMessage {
+    /// The type of HTTP headers object.
     type Headers: Headers;
 
+    /// Returns a shared reference to the HTTP message headers.
     fn headers(&self) -> &Self::Headers;
+
+    /// Returns a unique reference to the HTTP message headers. This is used by the
+    /// [sign](super::sign) function to insert the signature header according to the
+    /// chosen [algorithm](super::SignatureAlgorithm).
     fn headers_mut(&mut self) -> &mut Self::Headers;
+
+    /// The path component, excluding any query string components.
     fn path(&self) -> &str;
+
+    /// The query string component, if any. There must not be a leading `'?'`.
     fn query_string(&self) -> Option<&str>;
+
+    /// The HTTP method.
     fn method(&self) -> Method;
+
+    /// The body data. If the message does not contain a body, this function should return
+    /// a 0-length slice.
     fn body(&self) -> &[u8];
 }
 
-pub struct SimpleRequest<H> {
+/// This is a simple implementation of [HttpMessage] that does not depend on any external
+/// library. It owns all of the message data.
+pub struct OwnedHttpMessage<H> {
     headers: H,
     path: String,
     query_string: Option<String>,
@@ -17,7 +45,8 @@ pub struct SimpleRequest<H> {
     body: Vec<u8>
 }
 
-impl<H> SimpleRequest<H> {
+impl<H> OwnedHttpMessage<H> {
+    /// Build a new [OwnedHttpMessage] from owned components.
     pub fn new(
             method: Method,
             path: impl Into<String>,
@@ -34,7 +63,7 @@ impl<H> SimpleRequest<H> {
     }
 }
 
-impl<H: Headers> Request for SimpleRequest<H> {
+impl<H: Headers> HttpMessage for OwnedHttpMessage<H> {
     type Headers = H;
 
     fn headers(&self) -> &Self::Headers {
@@ -62,45 +91,64 @@ impl<H: Headers> Request for SimpleRequest<H> {
     }
 }
 
-impl<Body: AsRef<[u8]>> Request for ::http::Request<Body> {
-    type Headers = ::http::HeaderMap;
 
-    fn headers(&self) -> &Self::Headers {
-        self.headers()
-    }
+/// This is a simple implementation of [HttpMessage] that does not depend on any external
+/// library. It borrows all of the message data.
+pub struct BorrowedHttpMessage<'message, H> {
+    headers: &'message mut H,
+    path: &'message str,
+    query_string: Option<&'message str>,
+    method: Method,
+    body: &'message [u8]
+}
 
-    fn headers_mut(&mut self) -> &mut Self::Headers {
-        self.headers_mut()
-    }
-
-    fn path(&self) -> &str {
-        self.uri().path()
-    }
-
-    fn query_string(&self) -> Option<&str> {
-        self.uri().query()
-    }
-
-    fn method(&self) -> Method {
-        match self.method() {
-            &::http::Method::OPTIONS => Method::Options,
-            &::http::Method::GET => Method::Get,
-            &::http::Method::POST => Method::Post,
-            &::http::Method::PUT => Method::Put,
-            &::http::Method::DELETE => Method::Delete,
-            &::http::Method::HEAD => Method::Head,
-            &::http::Method::TRACE => Method::Trace,
-            &::http::Method::CONNECT => Method::Connect,
-            &::http::Method::PATCH => Method::Patch,
-            _ => panic!("Unrecognized HTTP method"),
+impl<'message, H> BorrowedHttpMessage<'message, H> {
+    /// Build a new [BorrowedHttpMessage] from borrowed components.
+    pub fn new(
+            method: Method,
+            path: &'message str,
+            query_string: Option<&'message str>,
+            headers: &'message mut H,
+            body: &'message [u8]) -> Self {
+        Self {
+            headers,
+            path,
+            query_string,
+            method,
+            body
         }
-    }
-
-    fn body(&self) -> &[u8] {
-        self.body().as_ref()
     }
 }
 
+impl<'message, H: Headers> HttpMessage for BorrowedHttpMessage<'message, H> {
+    type Headers = H;
+
+    fn headers(&self) -> &Self::Headers {
+        self.headers
+    }
+
+    fn headers_mut(&mut self) -> &mut Self::Headers {
+        self.headers
+    }
+
+    fn path(&self) -> &str {
+        self.path
+    }
+
+    fn query_string(&self) -> Option<&str> {
+        self.query_string
+    }
+
+    fn method(&self) -> Method {
+        self.method
+    }
+
+    fn body(&self) -> &[u8] {
+        self.body
+    }
+}
+
+/// An HTTP method such as GET, POST, etc.
 #[derive(Copy, Clone)]
 pub enum Method {
     Options,
@@ -115,6 +163,7 @@ pub enum Method {
 }
 
 impl Method {
+    /// Returns the lowercase representation of the [Method].
     pub fn lowercase(&self) -> &'static [u8] {
         match self {
             Self::Get => b"get",
@@ -130,16 +179,35 @@ impl Method {
     }
 }
 
+/// This trait allows the signature generation logic both read and write access to the
+/// HTTP headers contained within a [HTTP message](HttpMessage).
 pub trait Headers {
+    /// Iterator over header names. This library can only work with header names that are
+    /// valid UTF-8 (and by extension, all ASCII-only headers).
     type NameIter<'a> : Iterator<Item = &'a str>;
+    /// Iterator over header values. Header values are allowed to be arbitrary byte
+    /// strings in any encoding.
     type ValueIter<'a> : Iterator<Item = &'a [u8]>;
 
+    /// Returns an iterator over all the header names defined for the HTTP message.
     fn header_names<'this>(&'this self) -> Self::NameIter<'this>;
+
+    /// Returns true if the HTTP message contains a header with the given `name`, or false
+    /// if no such header is present. It is up to the implementor of this trait whether
+    /// header names are case sensitive.
     fn contains_header(&self, name: &str) -> bool;
+
+    /// Returns an iterator over all the values present for the header with the given
+    /// `name`. It is up to the implementor of this trait whether header names are
+    /// case sensitive.
     fn header_values<'this>(&'this self, name: &str) -> Self::ValueIter<'this>;
+
+    /// Inserts a new header with the given `name` and `value`. This will be used to
+    /// insert the computed Authorization or Signature header.
     fn insert_header(&mut self, name: &str, value: &[u8]);
 }
 
+/// Support for representing [Headers] as a [HashMap](std::collections::HashMap).
 mod hash_map {
     impl super::Headers for std::collections::HashMap<String, String> {
         type NameIter<'a> = NameIter<'a>;
@@ -163,6 +231,7 @@ mod hash_map {
         }
     }
 
+    /// Iterator over all the keys in the hash map as header names.
     pub struct NameIter<'a> {
         iter: std::collections::hash_map::Keys<'a, String, String>
     }
@@ -175,6 +244,7 @@ mod hash_map {
         }
     }
 
+    /// Iterator over all the values in the hash map as header values.
     pub struct ValueIter<'a> {
         value: Option<&'a [u8]>
     }
@@ -188,6 +258,7 @@ mod hash_map {
     }
 }
 
+/// Support for representing [Headers] as a [HashMap](std::collections::BTreeMap).
 mod btree_map {
     impl super::Headers for std::collections::BTreeMap<String, String> {
         type NameIter<'a> = NameIter<'a>;
@@ -236,8 +307,54 @@ mod btree_map {
     }
 }
 
+/// Adds support for using types from the [http](https://crates.io/crates/http) crate
+/// as implementations of [HttpMessage] and [Headers].
+///
+/// Requires the `http` feature to be enabled.
+#[cfg(feature = "http")]
 mod http {
     use http::{HeaderMap, HeaderValue, header::HeaderName};
+
+    use super::{HttpMessage, Method};
+
+    impl<Body: AsRef<[u8]>> HttpMessage for ::http::Request<Body> {
+        type Headers = ::http::HeaderMap;
+
+        fn headers(&self) -> &Self::Headers {
+            self.headers()
+        }
+
+        fn headers_mut(&mut self) -> &mut Self::Headers {
+            self.headers_mut()
+        }
+
+        fn path(&self) -> &str {
+            self.uri().path()
+        }
+
+        fn query_string(&self) -> Option<&str> {
+            self.uri().query()
+        }
+
+        fn method(&self) -> Method {
+            match self.method() {
+                &::http::Method::OPTIONS => Method::Options,
+                &::http::Method::GET => Method::Get,
+                &::http::Method::POST => Method::Post,
+                &::http::Method::PUT => Method::Put,
+                &::http::Method::DELETE => Method::Delete,
+                &::http::Method::HEAD => Method::Head,
+                &::http::Method::TRACE => Method::Trace,
+                &::http::Method::CONNECT => Method::Connect,
+                &::http::Method::PATCH => Method::Patch,
+                _ => panic!("Unrecognized HTTP method"),
+            }
+        }
+
+        fn body(&self) -> &[u8] {
+            self.body().as_ref()
+        }
+    }
 
     impl super::Headers for HeaderMap<HeaderValue> {
         type NameIter<'a> = NameIter<'a, HeaderValue>;

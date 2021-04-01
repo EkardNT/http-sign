@@ -3,7 +3,7 @@
 #![feature(min_type_alias_impl_trait)]
 
 mod algorithm;
-pub mod request;
+pub mod message;
 mod signature;
 
 pub use algorithm::{
