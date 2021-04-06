@@ -27,6 +27,11 @@ fn main() {
         &RsaSha256::new("my_key_id", key, random),
         &mut request,
         std::time::Duration::from_secs(60),
-        &[SignatureElement::Header("x-foo")]).expect("Failed to sign");
+        &[
+            SignatureElement::RequestTarget,
+            SignatureElement::Expires,
+            SignatureElement::Header("x-foo"),
+        ]
+    ).expect("Failed to sign");
     println!("{:?}", request);
 }
