@@ -13,6 +13,7 @@ categories = ["authentication", "network-programming", "web-programming::http-cl
 
 [dependencies]
 base64 = "0.13"
+bytes = "1.0"
 ring = "0.16"
 
 # Optional dependencies for type support.

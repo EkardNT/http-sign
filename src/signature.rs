@@ -1,6 +1,8 @@
 use std::{io::Write, time::{Duration, UNIX_EPOCH}};
 use std::time::SystemTime;
 
+use bytes::{BufMut, BytesMut};
+
 use crate::{algorithm::SignatureAlgorithm, message::{Headers, HttpMessage}};
 
 /// An element that contributes to the signature calculation. Standard HTTP headers may
@@ -83,7 +85,8 @@ pub enum SignError {
     Internal(&'static str)
 }
 
-pub fn sign<'sig_elems, SigAlg, Msg, IntoSigElements>(
+pub fn sign<'sig_elems, SigAlg, Msg>(
+        temporary_buffer: &mut BytesMut,
         scheme: SignatureScheme,
         sig_alg: &SigAlg,
         message: &mut Msg,
@@ -103,12 +106,12 @@ pub fn sign<'sig_elems, SigAlg, Msg, IntoSigElements>(
         .map_err(|_err| SignError::Internal("Unable to determine (expires) Unix timestamp"))?
         .as_secs();
     let signature_input = build_canonical_signature_input(
-        sig_alg, message, created, expires, signature_elements)?;
-    let encoded_signature = get_encoded_signature(sig_alg, signature_input)?;
-    let signature_header = build_final_header(scheme, sig_alg, encoded_signature, created, expires, signature_elements)?;
+        temporary_buffer, sig_alg, message, created, expires, signature_elements)?;
+    let encoded_signature = get_encoded_signature(temporary_buffer, sig_alg, signature_input)?;
+    let signature_header = build_final_header(temporary_buffer, scheme, sig_alg, encoded_signature, created, expires, signature_elements)?;
     match scheme {
-        SignatureScheme::AuthorizationHeader => message.headers_mut().insert_header("authorization", signature_header.as_slice()),
-        SignatureScheme::SignatureHeader => message.headers_mut().insert_header("signature", signature_header.as_slice())
+        SignatureScheme::AuthorizationHeader => message.headers_mut().insert_header("authorization", &signature_header),
+        SignatureScheme::SignatureHeader => message.headers_mut().insert_header("signature", &signature_header)
     }
     Ok(())
 }
@@ -156,108 +159,145 @@ fn validate_signature_elements<SigAlg: SignatureAlgorithm, Msg: HttpMessage>(
 }
 
 fn build_canonical_signature_input<'sig_elems, SigAlg, Msg>(
+        temporary_buffer: &mut BytesMut,
         sig_alg: &SigAlg,
         message: &mut Msg,
         created: u64,
         expires: u64,
         signature_elements: &[SignatureElement<'_>],
-    ) -> Result<Vec<u8>, SignError>
+    ) -> Result<BytesMut, SignError>
     where
         SigAlg: SignatureAlgorithm,
         Msg: HttpMessage,
 {
-    let mut canonical = Vec::with_capacity(1024);
+    temporary_buffer.clear();
     for element in signature_elements {
         match element {
             SignatureElement::RequestTarget => {
-                canonical.extend_from_slice(b"(request-target): ");
-                canonical.extend_from_slice(message.method().lowercase());
-                canonical.push(b' ');
+                temporary_buffer.extend_from_slice(b"(request-target): ");
+                temporary_buffer.extend_from_slice(message.method().lowercase());
+                temporary_buffer.extend_from_slice(b" ");
                 // TODO: url-encode the path and query string?
-                canonical.extend_from_slice(message.path().as_bytes());
+                temporary_buffer.extend_from_slice(message.path().as_bytes());
                 if let Some(query) = message.query_string() {
-                    canonical.push(b'?');
-                    canonical.extend_from_slice(query.as_bytes());
+                    temporary_buffer.extend_from_slice(b"?");
+                    temporary_buffer.extend_from_slice(query.as_bytes());
                 }
-                canonical.push(b'\n');
+                temporary_buffer.extend_from_slice(b"\n");
             }
             SignatureElement::Created => {
-                write!(canonical, "(created): {}\n", created)
-                    .map_err(|_err| SignError::Internal("Failed to format (created) canonical entry"))?;
+                temporary_buffer.extend_from_slice(b"(created): ");
+                created.as_display(|displayed| temporary_buffer.extend_from_slice(displayed));
+                // .map_err(|_err| SignError::Internal("Failed to format (created) canonical entry"))?
+                temporary_buffer.extend_from_slice(b"\n");
             }
             SignatureElement::Expires => {
-                write!(canonical, "(expires): {}\n", expires)
-                    .map_err(|_err| SignError::Internal("Failed to format (expires) canonical entry"))?;
+                temporary_buffer.extend_from_slice(b"(expires): ");
+                expires.as_display(|displayed| temporary_buffer.extend_from_slice(displayed));
+                    // .map_err(|_err| SignError::Internal("Failed to format (expires) canonical entry"))?;
+                temporary_buffer.extend_from_slice(b"\n");
             }
             SignatureElement::Header(name) => {
-                canonical.extend_from_slice(name.as_bytes());
-                canonical.extend_from_slice(b": ");
+                temporary_buffer.extend_from_slice(name.as_bytes());
+                temporary_buffer.extend_from_slice(b": ");
                 if message.headers().header_values(name).any(|_| true) {
                     for value in message.headers().header_values(name) {
                         // If header value is a valid UTF-8 string, then trim it, otherwise use the raw bytes
                         if let Ok(value_str) = std::str::from_utf8(value) {
-                            canonical.extend_from_slice(value_str.trim().as_bytes());
+                            temporary_buffer.extend_from_slice(value_str.trim().as_bytes());
                         } else {
-                            canonical.extend_from_slice(value);
+                            temporary_buffer.extend_from_slice(value);
                         }
-                        canonical.extend_from_slice(b", ");
+                        temporary_buffer.extend_from_slice(b", ");
                     }
                     // remove last ", ". We know there is at least one.
-                    assert_eq!(Some(b' '), canonical.pop());
-                    assert_eq!(Some(b','), canonical.pop());
+                    assert_eq!(&b", "[..], temporary_buffer.split_off(temporary_buffer.len() - 2));
                 }
-                canonical.push(b'\n');
+                temporary_buffer.extend_from_slice(b"\n");
             }
         }
     }
-    Ok(canonical)
+    Ok(temporary_buffer.split())
 }
 
 fn get_encoded_signature<SigAlg: SignatureAlgorithm>(
+        temporary_buffer: &mut BytesMut,
         sig_alg: &SigAlg,
-        mut signature_input: Vec<u8>,
-    ) -> Result<String, SignError> {
-    let mut signature = Vec::new();
-    sig_alg.sign(signature_input.as_slice(), &mut signature)
+        mut signature_input: BytesMut,
+    ) -> Result<BytesMut, SignError> {
+    temporary_buffer.clear();
+    sig_alg.sign(&signature_input, &mut temporary_buffer.writer())
         .map_err(|_err| SignError::Internal("IO error when signing"))?;
     // Reuse the signature_input for the base64 output, since we're not using it anymore.
-    signature_input.clear();
-    let mut encoded = String::from_utf8(signature_input)
-        .map_err(|_err| SignError::Internal("Unable to resuse siganture_input allocation for base64 output"))?;
-    base64::encode_config_buf(signature, base64::STANDARD, &mut encoded);
-    Ok(encoded)
+    let signature = temporary_buffer.split();
+    base64::write::EncoderWriter::new(temporary_buffer.writer(), base64::STANDARD).write_all(&signature)
+        .map_err(|_err| SignError::Internal("IO error when base64-encoding signature"))?;
+    Ok(temporary_buffer.split())
 }
 
 fn build_final_header<SigAlg: SignatureAlgorithm>(
+        temporary_buffer: &mut BytesMut,
         scheme: SignatureScheme,
         sig_alg: &SigAlg,
-        encoded_signature: String,
+        encoded_signature: BytesMut,
         created: u64,
         expires: u64,
         signature_elements: &[SignatureElement<'_>],
-    ) -> Result<Vec<u8>, SignError> {
-    let mut header = Vec::new();
-
-    header.extend_from_slice(scheme.header_prefix().as_bytes());
-    header.extend_from_slice(b"keyId=\"");
-    header.extend_from_slice(sig_alg.key_id().as_bytes());
-    header.extend_from_slice(b"\",algorithm=\"");
-    header.extend_from_slice(sig_alg.name().as_bytes());
-    write!(header, "\",created={},expires={},headers=\"", created, expires)
-        .map_err(|_err| SignError::Internal("Unable to write to final header buffer"))?;
+    ) -> Result<BytesMut, SignError> {
+    temporary_buffer.clear();
+    temporary_buffer.extend_from_slice(scheme.header_prefix().as_bytes());
+    temporary_buffer.extend_from_slice(b"keyId=\"");
+    temporary_buffer.extend_from_slice(sig_alg.key_id().as_bytes());
+    temporary_buffer.extend_from_slice(b"\",algorithm=\"");
+    temporary_buffer.extend_from_slice(sig_alg.name().as_bytes());
+    temporary_buffer.extend_from_slice(b"\",created=");
+    created.as_display(|displayed| temporary_buffer.extend_from_slice(displayed));
+    temporary_buffer.extend_from_slice(b",expires=");
+    expires.as_display(|displayed| temporary_buffer.extend_from_slice(displayed));
+    temporary_buffer.extend_from_slice(b",headers=\"");
+    debug_assert!(!signature_elements.is_empty());
     for element in signature_elements {
-        header.extend_from_slice(match element {
+        temporary_buffer.extend_from_slice(match element {
             SignatureElement::RequestTarget => b"(request-target)",
             SignatureElement::Created => b"(created)",
             SignatureElement::Expires => b"(expires)",
             SignatureElement::Header(name) => name.as_bytes()
         });
-        header.push(b' ');
+        temporary_buffer.extend_from_slice(b" ");
     }
-    assert_eq!(Some(b' '), header.pop());
-    header.extend_from_slice(b"\",signature=\"");
-    header.extend_from_slice(encoded_signature.as_bytes());
-    header.push(b'"');
+    assert_eq!(&b" "[..], temporary_buffer.split_off(temporary_buffer.len() - 1));
+    temporary_buffer.extend_from_slice(b"\",signature=\"");
+    temporary_buffer.extend_from_slice(&encoded_signature);
+    temporary_buffer.extend_from_slice(b"\"");
+    Ok(temporary_buffer.split())
+}
 
-    Ok(header)
+
+trait AsDisplay {
+    fn as_display<Receiver>(&self, f: Receiver)
+        where Receiver : FnOnce(&[u8]);
+}
+
+impl AsDisplay for usize {
+    fn as_display<Receiver>(&self, f: Receiver)
+        where Receiver : FnOnce(&[u8]) {
+        let mut array = [0u8; 20];
+        write!(&mut array[..], "{}", self).expect("Failed to format usize as string");
+        match array.iter().position(|byte| *byte == 0) {
+            Some(end) => f(&array[..end]),
+            None => f(&array)
+        }
+    }
+}
+
+impl AsDisplay for u64 {
+    fn as_display<Receiver>(&self, f: Receiver)
+        where Receiver : FnOnce(&[u8]) {
+        let mut array = [0u8; 20];
+        write!(&mut array[..], "{}", self).expect("Failed to format u64 as string");
+        match array.iter().position(|byte| *byte == 0) {
+            Some(end) => f(&array[..end]),
+            None => f(&array)
+        }
+    }
 }

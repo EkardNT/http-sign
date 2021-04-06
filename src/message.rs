@@ -37,6 +37,7 @@ pub trait HttpMessage {
 
 /// This is a simple implementation of [HttpMessage] that does not depend on any external
 /// library. It owns all of the message data.
+#[derive(Debug)]
 pub struct OwnedHttpMessage<H> {
     headers: H,
     path: String,
@@ -49,16 +50,16 @@ impl<H> OwnedHttpMessage<H> {
     /// Build a new [OwnedHttpMessage] from owned components.
     pub fn new(
             method: Method,
-            path: impl Into<String>,
-            query_string: Option<impl Into<String>>,
+            path: String,
+            query_string: Option<String>,
             headers: H,
-            body: impl Into<Vec<u8>>) -> Self {
+            body: Vec<u8>,) -> Self {
         Self {
             headers,
-            path: path.into(),
-            query_string: query_string.map(Into::into),
+            path,
+            query_string,
             method,
-            body: body.into()
+            body,
         }
     }
 }
@@ -149,7 +150,7 @@ impl<'message, H: Headers> HttpMessage for BorrowedHttpMessage<'message, H> {
 }
 
 /// An HTTP method such as GET, POST, etc.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Method {
     Options,
     Get,
