@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use bytes::{BufMut, BytesMut};
 
-use crate::{algorithm::SignatureAlgorithm, message::{Headers, HttpRequest}};
+use crate::{algorithm::SignatureAlgorithm, request::{Headers, HttpRequest}};
 
 /// An element that contributes to the signature calculation. Standard HTTP headers may
 /// be included in the signature, as well as special non-header fields such as

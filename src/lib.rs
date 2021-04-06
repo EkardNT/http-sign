@@ -3,7 +3,7 @@
 #![feature(min_type_alias_impl_trait)]
 
 mod algorithm;
-pub mod message;
+pub mod request;
 mod signature;
 
 #[allow(deprecated)]
