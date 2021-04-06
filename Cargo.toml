@@ -1,6 +1,6 @@
 [package]
 name = "http-sign"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Drake Tetreault <ekardnt@ekardnt.com>"]
 edition = "2018"
 license = "CC0-1.0"
