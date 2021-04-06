@@ -6,6 +6,7 @@ mod algorithm;
 pub mod message;
 mod signature;
 
+#[allow(deprecated)]
 pub use algorithm::{
     SignatureAlgorithm,
     hs::Hs2019,

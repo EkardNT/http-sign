@@ -1,22 +1,21 @@
-/// This trait exposes all of the information about a HTTP message that is required to
-/// produce the signature header. This trait can represent both HTTP requests and
-/// responses.
+/// This trait exposes all of the information about a HTTP request that is required to
+/// produce the signature header.
 ///
-/// The [OwnedHttpMessage] and [BorrowedHttpMessage] types are provided for simple use
-/// cases where you do not have preexisting structs representing HTTP requests and responses
-/// that you can use. In addition to those two convenience types, support for other common
-/// community crates can be enabled by turning on the following **features**, all of which are
-/// off by default.
+/// The [OwnedHttpRequest] and [BorrowedHttpRequest] types are provided for simple use
+/// cases where you do not have preexisting structs representing HTTP requests that you
+/// can use. In addition to those two convenience types, support for other common
+/// community crates can be enabled by turning on the following **features**, all of which
+/// are off by default.
 /// - `http`: Enables support for the [http](https://crates.io/crates/http) crate's
 ///   Request and HeaderMap types.
-pub trait HttpMessage {
+pub trait HttpRequest {
     /// The type of HTTP headers object.
     type Headers: Headers;
 
-    /// Returns a shared reference to the HTTP message headers.
+    /// Returns a shared reference to the HTTP request headers.
     fn headers(&self) -> &Self::Headers;
 
-    /// Returns a unique reference to the HTTP message headers. This is used by the
+    /// Returns a unique reference to the HTTP request headers. This is used by the
     /// [sign](super::sign) function to insert the signature header according to the
     /// chosen [algorithm](super::SignatureAlgorithm).
     fn headers_mut(&mut self) -> &mut Self::Headers;
@@ -30,15 +29,15 @@ pub trait HttpMessage {
     /// The HTTP method.
     fn method(&self) -> Method;
 
-    /// The body data. If the message does not contain a body, this function should return
+    /// The body data. If the request does not contain a body, this function should return
     /// a 0-length slice.
     fn body(&self) -> &[u8];
 }
 
-/// This is a simple implementation of [HttpMessage] that does not depend on any external
-/// library. It owns all of the message data.
+/// This is a simple implementation of [HttpRequest] that does not depend on any external
+/// library. It owns all of the request data.
 #[derive(Debug)]
-pub struct OwnedHttpMessage<H> {
+pub struct OwnedHttpRequest<H> {
     headers: H,
     path: String,
     query_string: Option<String>,
@@ -46,8 +45,8 @@ pub struct OwnedHttpMessage<H> {
     body: Vec<u8>
 }
 
-impl<H> OwnedHttpMessage<H> {
-    /// Build a new [OwnedHttpMessage] from owned components.
+impl<H> OwnedHttpRequest<H> {
+    /// Build a new [OwnedHttpRequest] from owned components.
     pub fn new(
             method: Method,
             path: String,
@@ -64,7 +63,7 @@ impl<H> OwnedHttpMessage<H> {
     }
 }
 
-impl<H: Headers> HttpMessage for OwnedHttpMessage<H> {
+impl<H: Headers> HttpRequest for OwnedHttpRequest<H> {
     type Headers = H;
 
     fn headers(&self) -> &Self::Headers {
@@ -93,24 +92,24 @@ impl<H: Headers> HttpMessage for OwnedHttpMessage<H> {
 }
 
 
-/// This is a simple implementation of [HttpMessage] that does not depend on any external
-/// library. It borrows all of the message data.
-pub struct BorrowedHttpMessage<'message, H> {
-    headers: &'message mut H,
-    path: &'message str,
-    query_string: Option<&'message str>,
+/// This is a simple implementation of [HttpRequest] that does not depend on any external
+/// library. It borrows all of the request data.
+pub struct BorrowedHttpRequest<'request, H> {
+    headers: &'request mut H,
+    path: &'request str,
+    query_string: Option<&'request str>,
     method: Method,
-    body: &'message [u8]
+    body: &'request [u8]
 }
 
-impl<'message, H> BorrowedHttpMessage<'message, H> {
-    /// Build a new [BorrowedHttpMessage] from borrowed components.
+impl<'request, H> BorrowedHttpRequest<'request, H> {
+    /// Build a new [BorrowedHttpRequest] from borrowed components.
     pub fn new(
             method: Method,
-            path: &'message str,
-            query_string: Option<&'message str>,
-            headers: &'message mut H,
-            body: &'message [u8]) -> Self {
+            path: &'request str,
+            query_string: Option<&'request str>,
+            headers: &'request mut H,
+            body: &'request [u8]) -> Self {
         Self {
             headers,
             path,
@@ -121,7 +120,7 @@ impl<'message, H> BorrowedHttpMessage<'message, H> {
     }
 }
 
-impl<'message, H: Headers> HttpMessage for BorrowedHttpMessage<'message, H> {
+impl<'request, H: Headers> HttpRequest for BorrowedHttpRequest<'request, H> {
     type Headers = H;
 
     fn headers(&self) -> &Self::Headers {
@@ -181,7 +180,7 @@ impl Method {
 }
 
 /// This trait allows the signature generation logic both read and write access to the
-/// HTTP headers contained within a [HTTP message](HttpMessage).
+/// HTTP headers contained within a [HTTP request](HttpRequest).
 pub trait Headers {
     /// Iterator over header names. This library can only work with header names that are
     /// valid UTF-8 (and by extension, all ASCII-only headers).
@@ -190,10 +189,10 @@ pub trait Headers {
     /// strings in any encoding.
     type ValueIter<'a> : Iterator<Item = &'a [u8]>;
 
-    /// Returns an iterator over all the header names defined for the HTTP message.
+    /// Returns an iterator over all the header names defined for the HTTP request.
     fn header_names<'this>(&'this self) -> Self::NameIter<'this>;
 
-    /// Returns true if the HTTP message contains a header with the given `name`, or false
+    /// Returns true if the HTTP request contains a header with the given `name`, or false
     /// if no such header is present. It is up to the implementor of this trait whether
     /// header names are case sensitive.
     fn contains_header(&self, name: &str) -> bool;
@@ -309,16 +308,16 @@ mod btree_map {
 }
 
 /// Adds support for using types from the [http](https://crates.io/crates/http) crate
-/// as implementations of [HttpMessage] and [Headers].
+/// as implementations of [HttpRequest] and [Headers].
 ///
 /// Requires the `http` feature to be enabled.
 #[cfg(feature = "http")]
 mod http {
     use http::{HeaderMap, HeaderValue, header::HeaderName};
 
-    use super::{HttpMessage, Method};
+    use super::{HttpRequest, Method};
 
-    impl<Body: AsRef<[u8]>> HttpMessage for ::http::Request<Body> {
+    impl<Body: AsRef<[u8]>> HttpRequest for ::http::Request<Body> {
         type Headers = ::http::HeaderMap;
 
         fn headers(&self) -> &Self::Headers {

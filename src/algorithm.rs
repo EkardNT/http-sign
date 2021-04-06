@@ -22,10 +22,15 @@ pub trait SignatureAlgorithm {
 pub mod hs {
     use std::io::Write;
 
-    use ring::{hmac::Key, rand::SecureRandom, signature::{RsaEncoding, RsaKeyPair}};
+    use ring::{hmac::Key, rand::SecureRandom, signature::RsaKeyPair};
 
     use super::SignatureAlgorithm;
 
+    /// The "hs2019" [signature algorithm](super::SignatureAlgorithm). This is the only
+    /// non-deprecated algorithm. Unlike the other algorithms, the hash and digest
+    /// functions are not implied by the choice of this signature algorithm. Instead, the
+    /// hash and digest functions are chosen based on the key used. RSA, HMAC, and ECDSA
+    /// keys are all supported.
     pub struct Hs2019<Rand>(Inner<Rand>);
 
     enum Inner<Rand> {
@@ -118,6 +123,7 @@ pub mod hs {
     }
 }
 
+#[allow(deprecated)]
 pub mod rsa {
     use std::fmt::Debug;
     use std::io::Write;
@@ -126,6 +132,8 @@ pub mod rsa {
 
     use super::SignatureAlgorithm;
 
+    /// The "rsa-sha256" [signature algorithm](super::SignatureAlgorithm). Deprecated by
+    /// the standard because it reveals which hash and digest algorithm is used.
     #[deprecated]
     pub struct RsaSha256<Rand> {
         key_id: String,
@@ -176,14 +184,17 @@ pub mod rsa {
     }
 }
 
+#[allow(deprecated)]
 pub mod hmac {
     use std::fmt::Debug;
     use std::io::Write;
 
-    use ring::{rand::SecureRandom, hmac::Key};
+    use ring::hmac::Key;
 
     use super::SignatureAlgorithm;
 
+    /// The "hmac-sha256" [signature algorithm](super::SignatureAlgorithm). Deprecated by
+    /// the standard because it reveals which hash and digest algorithm is used.
     #[deprecated]
     pub struct HmacSha256 {
         key_id: String,
@@ -204,7 +215,7 @@ pub mod hmac {
 
     impl SignatureAlgorithm for HmacSha256 {
         fn name(&self) -> &str {
-            "rsa-sha256"
+            "hmac-sha256"
         }
 
         fn key_id(&self) -> &str {
@@ -231,6 +242,7 @@ pub mod hmac {
     }
 }
 
+#[allow(deprecated)]
 pub mod ecdsa {
     use std::fmt::Debug;
     use std::io::Write;
@@ -239,6 +251,8 @@ pub mod ecdsa {
 
     use super::SignatureAlgorithm;
 
+    /// The "ecdsa-sha256" [signature algorithm](super::SignatureAlgorithm). Deprecated by
+    /// the standard because it reveals which hash and digest algorithm is used.
     #[deprecated]
     pub struct EcdsaSha256<Rand> {
         key_id: String,

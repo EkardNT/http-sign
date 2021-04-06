@@ -3,14 +3,14 @@ use std::time::SystemTime;
 
 use bytes::{BufMut, BytesMut};
 
-use crate::{algorithm::SignatureAlgorithm, message::{Headers, HttpMessage}};
+use crate::{algorithm::SignatureAlgorithm, message::{Headers, HttpRequest}};
 
 /// An element that contributes to the signature calculation. Standard HTTP headers may
 /// be included in the signature, as well as special non-header fields such as
 /// `(request-target)`, `(created)`, and `(expires)`. The list of signature elements
-/// determines which parts of the HTTP message are protected by the signature. The order
-/// of signature elements that is chosen is also important in that it determines the
-/// order in which the signature input string is formed.
+/// passed to the [sign] function determines which parts of the HTTP message are protected
+/// by the signature. The order of signature elements that is chosen is also important in
+/// that it determines the order in which the signature input string is formed.
 #[derive(Debug, Eq, PartialEq)]
 pub enum SignatureElement<'a> {
     /// The `(request-target)` special field. Results in the concatenation of the lowercase
@@ -95,7 +95,7 @@ pub fn sign<'sig_elems, SigAlg, Msg>(
     ) -> Result<(), SignError>
     where
         SigAlg: SignatureAlgorithm,
-        Msg: HttpMessage,
+        Msg: HttpRequest,
 {
     validate_signature_elements(sig_alg, message, signature_elements)?;
     let now = SystemTime::now();
@@ -106,7 +106,7 @@ pub fn sign<'sig_elems, SigAlg, Msg>(
         .map_err(|_err| SignError::Internal("Unable to determine (expires) Unix timestamp"))?
         .as_secs();
     let signature_input = build_canonical_signature_input(
-        temporary_buffer, sig_alg, message, created, expires, signature_elements)?;
+        temporary_buffer, message, created, expires, signature_elements)?;
     let encoded_signature = get_encoded_signature(temporary_buffer, sig_alg, signature_input)?;
     let signature_header = build_final_header(temporary_buffer, scheme, sig_alg, encoded_signature, created, expires, signature_elements)?;
     match scheme {
@@ -116,7 +116,7 @@ pub fn sign<'sig_elems, SigAlg, Msg>(
     Ok(())
 }
 
-fn validate_signature_elements<SigAlg: SignatureAlgorithm, Msg: HttpMessage>(
+fn validate_signature_elements<SigAlg: SignatureAlgorithm, Msg: HttpRequest>(
         sig_alg: &SigAlg,
         message: &mut Msg,
         signature_elements: &[SignatureElement<'_>],
@@ -158,17 +158,15 @@ fn validate_signature_elements<SigAlg: SignatureAlgorithm, Msg: HttpMessage>(
     Ok(())
 }
 
-fn build_canonical_signature_input<'sig_elems, SigAlg, Msg>(
+fn build_canonical_signature_input<'sig_elems, Msg>(
         temporary_buffer: &mut BytesMut,
-        sig_alg: &SigAlg,
         message: &mut Msg,
         created: u64,
         expires: u64,
         signature_elements: &[SignatureElement<'_>],
     ) -> Result<BytesMut, SignError>
     where
-        SigAlg: SignatureAlgorithm,
-        Msg: HttpMessage,
+        Msg: HttpRequest,
 {
     temporary_buffer.clear();
     for element in signature_elements {
@@ -223,7 +221,7 @@ fn build_canonical_signature_input<'sig_elems, SigAlg, Msg>(
 fn get_encoded_signature<SigAlg: SignatureAlgorithm>(
         temporary_buffer: &mut BytesMut,
         sig_alg: &SigAlg,
-        mut signature_input: BytesMut,
+        signature_input: BytesMut,
     ) -> Result<BytesMut, SignError> {
     temporary_buffer.clear();
     sig_alg.sign(&signature_input, &mut temporary_buffer.writer())
