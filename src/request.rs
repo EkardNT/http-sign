@@ -184,10 +184,10 @@ impl Method {
 pub trait Headers {
     /// Iterator over header names. This library can only work with header names that are
     /// valid UTF-8 (and by extension, all ASCII-only headers).
-    type NameIter<'a> : Iterator<Item = &'a str>;
+    type NameIter<'a> : Iterator<Item = &'a str> where Self: 'a;
     /// Iterator over header values. Header values are allowed to be arbitrary byte
     /// strings in any encoding.
-    type ValueIter<'a> : Iterator<Item = &'a [u8]>;
+    type ValueIter<'a> : Iterator<Item = &'a [u8]> where Self: 'a;
 
     /// Returns an iterator over all the header names defined for the HTTP request.
     fn header_names<'this>(&'this self) -> Self::NameIter<'this>;
