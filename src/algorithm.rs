@@ -102,8 +102,8 @@ pub mod hs {
                     // 1024 bytes is enough for RSA-8192 keys.
                     let mut signature = [0u8; 1024];
                     let signature = &mut signature[..key.public_modulus_len()];
-                    key.sign(&ring::signature::RSA_PKCS1_SHA512, random, data, signature)
-                        .expect("Failed to compute RSA_PKCS1_SHA512 signature");
+                    key.sign(&ring::signature::RSA_PKCS1_SHA256, random, data, signature)
+                        .expect("Failed to compute RSA_PKCS1_SHA256 signature");
                     output.write_all(signature)
                 }
                 Inner::RsaPss { key, random, .. } => {
